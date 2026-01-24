@@ -1,0 +1,17 @@
+[Unit]
+Description=Nanami Smart Desk Core
+After=network.target sound.target mosquitto.service
+
+[Service]
+Type=simple
+User=rasphi
+Group=rasphi
+Environment=XDG_RUNTIME_DIR=/run/user/1000
+Environment=PULSE_RUNTIME_PATH=/run/user/1000/pulse
+WorkingDirectory=/home/rasphi
+ExecStart=/usr/bin/python3 /home/rasphi/smartdesk_core.py
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
