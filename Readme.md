@@ -1,6 +1,18 @@
+<div align="center">
+   
 # 🤖 Nanami Smart Desk Assistant (v3.0)
 
-**"More than just automation. It's a presence."**
+![Python](https://img.shields.io/badge/Python-3.9+-3776AB?style=for-the-badge&logo=python&logoColor=white)
+![PlatformIO](https://img.shields.io/badge/PlatformIO-Core-orange?style=for-the-badge&logo=platformio&logoColor=white)
+![Raspberry Pi](https://img.shields.io/badge/Raspberry%20Pi-Zero%202%20W-C51A4A?style=for-the-badge&logo=raspberry-pi&logoColor=white)
+![ESP32](https://img.shields.io/badge/ESP32-WROOM-000000?style=for-the-badge&logo=espressif&logoColor=white)
+![MQTT](https://img.shields.io/badge/MQTT-Mosquitto-3C2179?style=for-the-badge&logo=eclipse-mosquitto&logoColor=white)
+
+**_"More than just automation. It's a presence."_**
+
+</div>
+
+---
 
 Nanami adalah sistem asisten desktop berbasis **Raspberry Pi Zero 2W** dan **ESP32** yang dirancang untuk memberikan pengalaman "Cinematic" saat bekerja. Sistem ini menggabungkan sensor lingkungan, manajemen daya otomatis (Guardian Mode), dan respons suara dinamis.
 
