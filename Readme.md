@@ -2,7 +2,7 @@
 
 **"More than just automation. It's a presence."**
 
-Nanami adalah sistem asisten desktop berbasis **Raspberry Pi 4** dan **ESP32** yang dirancang untuk memberikan pengalaman "Cinematic" saat bekerja. Sistem ini menggabungkan sensor lingkungan, manajemen daya otomatis (Guardian Mode), dan respons suara dinamis.
+Nanami adalah sistem asisten desktop berbasis **Raspberry Pi Zero 2W** dan **ESP32** yang dirancang untuk memberikan pengalaman "Cinematic" saat bekerja. Sistem ini menggabungkan sensor lingkungan, manajemen daya otomatis (Guardian Mode), dan respons suara dinamis.
 
 ---
 
@@ -17,7 +17,7 @@ Nanami adalah sistem asisten desktop berbasis **Raspberry Pi 4** dan **ESP32** y
 ---
 
 ## 🛠️ Hardware Requirements
-1.  **Raspberry Pi 4** (Main Brain & MQTT Broker).
+1.  **Raspberry Pi Zero 2W** (Main Brain & MQTT Broker).
 2.  **ESP32 Development Board** (Sensor Node & Controller).
 3.  **HC-SR04** (Ultrasonic Distance Sensor).
 4.  **DHT11** (Temperature & Humidity Sensor).
@@ -66,14 +66,30 @@ Upload Selanjutnya: Bisa via OTA (WiFi) dengan uncomment protokol espota di plat
 
 ---
 
-### 📡 MQTT Topic Dictionary
-Daftar topik untuk integrasi atau debugging manual via mosquitto_sub/pub:
-Topic,Direction,Payload / Value,Description
-smartdesk/sensor/data,ESP32 -> RPi,"{""dist"": int, ""temp"": float, ""gas"": int}",Data real-time sensor.
-smartdesk/control/fan,RPi -> ESP32,ON / OFF,Auto: Kontrol Kipas Laptop (Active LOW).
-smartdesk/control/lamp,RPi -> ESP32,ON / OFF,Manual: Kontrol Lampu Servis (Active HIGH).
-smartdesk/control/buzzer,RPi -> ESP32,1 - 5,Membunyikan buzzer n kali.
-smartdesk/status,RPi -> ESP32,RPI_READY,Sinyal bahwa RPi selesai booting.
+## 📡 MQTT Topic Dictionary
+
+Daftar topik untuk integrasi manual via `mosquitto_sub/pub`:
+
+### 📥 Sensors (ESP32 mengirim ke RPi)
+* **Topic:** `smartdesk/sensor/data`
+    * **Payload:** `{"dist": int, "temp": float, "gas": int}`
+    * **Fungsi:** Data real-time jarak, suhu, dan kualitas udara.
+
+### 📤 Controls (RPi memerintah ESP32)
+* **Topic:** `smartdesk/control/fan`
+    * **Payload:** `ON` / `OFF`
+    * **Fungsi:** Menyalakan Kipas Laptop Otomatis (Active LOW).
+* **Topic:** `smartdesk/control/lamp`
+    * **Payload:** `ON` / `OFF`
+    * **Fungsi:** Menyalakan Lampu Servis Manual (Active HIGH).
+* **Topic:** `smartdesk/control/buzzer`
+    * **Payload:** `1` - `5`
+    * **Fungsi:** Membunyikan buzzer sebanyak n kali.
+
+### 🔄 System Status
+* **Topic:** `smartdesk/status`
+    * **Payload:** `RPI_READY`
+    * **Fungsi:** Sinyal bahwa RPi telah selesai booting (Trigger suara 'Tit-Tit').
 
 ---
 
