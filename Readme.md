@@ -29,6 +29,23 @@ Nanami adalah sistem asisten desktop berbasis **Raspberry Pi Zero 2W** dan **ESP
 
 ---
 
+## 🔌 Wiring Configuration (ESP32 Pinout)
+
+Jangan sampai salah colok! Berikut pemetaan Pin GPIO di ESP32:
+
+| Component | ESP32 Pin | Notes / Logic |
+| :--- | :--- | :--- |
+| **Laptop Fan Relay** | GPIO 26 | Active LOW (0 = ON) |
+| **Maintenance Lamp** | GPIO 19 | Active HIGH (1 = ON) |
+| **Buzzer** | GPIO 13 | Active HIGH |
+| **Ultrasonic Trig** | GPIO 21 | Output |
+| **Ultrasonic Echo** | GPIO 22 | Input |
+| **DHT11 Sensor** | GPIO 4 | Pull-up Resistor required |
+| **MQ-135 (Gas)** | GPIO 34 | Analog Input (ADC) |
+| **RPi Power Control**| GPIO 27 | Optional (Transistor/Mosfet) |
+  
+---
+
 ## ⚙️ Installation Guide
 
 ### 1. Raspberry Pi Setup (The Brain)
