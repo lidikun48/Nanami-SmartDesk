@@ -17,9 +17,9 @@
 #include <ArduinoOTA.h>
 
 // ... (NETWORK & IP SAMA KAYA SEBELUMNYA) ...
-const char* ssid = "TAMPAN & BERANI";
-const char* pass = "Atomic-007";
-const char* mqtt_server = "192.168.1.6"; 
+const char* ssid = "YOUR_SSID";
+const char* pass = "YOUR_PASSWORD_WIFI";
+const char* mqtt_server = "192.168.1.X"; //Sesuaikan IP Raspi
 IPAddress local_IP(192, 168, 1, 200); 
 IPAddress gateway(192, 168, 1, 1);
 IPAddress subnet(255, 255, 255, 0);
