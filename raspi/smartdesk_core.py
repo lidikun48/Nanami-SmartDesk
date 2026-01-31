@@ -1,191 +1,227 @@
-#!/usr/bin/env python3
-# Simpan di: /home/rasphi/smartdesk_core.py
-
-import paho.mqtt.client as mqtt
 import time
+import sys
 import os
 import json
-import subprocess
-import threading
+import paho.mqtt.client as mqtt
 from datetime import datetime
-from gtts import gTTS
 
-# ================= CONFIG =================
-BROKER = "localhost"
-TOPIC_DATA     = "desk/sensor/data"
-TOPIC_STATE    = "desk/system/state"
-TOPIC_CTRL_FAN = "desk/control/fan"  # Topik buat nyalain Kipas
+# --- IMPORT MODULE ---
+try:
+    from smartdesk_audio import play_voice, check_and_switch_audio
+    from audio_config import LOG_FILE
+except ImportError:
+    sys.exit(1)
 
-SOUND_DIR = "/home/rasphi/sounds"
-MQ_THRESHOLD_BAD = 2200
-CONFIDENCE_LIMIT = 65
+# --- CONFIG ---
+MQTT_BROKER = "localhost"
+MQTT_PORT   = 1883
+MQTT_TOPIC  = "smartdesk/#"
 
-# Volume & State
-VOL_DAY   = "85%"
-VOL_NIGHT = "35%"
-CURRENT_VOL_MODE = ""
+# --- STATE VARIABLES ---
+state = {
+    "boot_complete": False,
+    "mqtt_connected": False,
+    "user_present": False,
+    "fan_is_on": False,
+    "last_error_time": 0,
+    "away_timer_start": 0,
+    "last_temp_alert": 0,
+    "current_temp": -999,
+    "current_dist": -999,
+    "current_gas": 0
+}
 
-SYSTEM_READY = False
-USER_PRESENT = False
-BLUETOOTH_CONNECTED = False
-LAST_SEEN = 0
-SEATED_START = 0
-LAST_HEALTH_CHECK = 0
-AIR_WARNING_LEVEL = 0
-LAST_AIR_WARN = 0
+# --- LOGGER (Silent & Clean Mode) ---
+class Logger(object):
+    def __init__(self):
+        self.terminal = sys.stdout
+        self.log = open(LOG_FILE, "w") # Mode "w" = Reset log tiap restart
+    def write(self, message):
+        self.terminal.write(message)
+        self.log.write(message)
+        self.log.flush()
+    def flush(self): pass
 
-# ================= 🔊 AUDIO & VOLUME =================
-def set_master_volume():
-    global CURRENT_VOL_MODE
+sys.stdout = Logger()
+
+# --- HELPER ---
+def get_time_greeting():
     h = datetime.now().hour
-    target = VOL_DAY if 6 <= h < 23 else VOL_NIGHT
-    mode = "DAY" if 6 <= h < 23 else "NIGHT"
+    if 0 <= h < 11:    return "greet_morning"
+    elif 11 <= h < 16: return "greet_siang"
+    elif 16 <= h < 19: return "greet_sore"
+    else:              return "greet_malam"
+
+def analyze_air(gas):
+    if gas < 1500: return "Good"
+    elif gas < 2500: return "Moderate"
+    else: return "Bad"
+
+# --- CINEMATIC DIRECTOR (Booting) ---
+def run_cinematic_boot(client):
+    print("\n🎬 STARTING CINEMATIC BOOT SEQUENCE...")
     
-    if CURRENT_VOL_MODE != mode:
-        os.system(f"amixer -D pulse sset Master {target} > /dev/null")
-        CURRENT_VOL_MODE = mode
-
-def duck_audio(active=True):
-    try:
-        cmd = "pactl list sink-inputs short | grep loopback | awk '{print $1}'"
-        streams = subprocess.getoutput(cmd).split('\n')
-        vol = "25%" if active else "100%"
-        for sid in streams:
-            if sid: os.system(f"pactl set-sink-input-volume {sid} {vol}")
-    except: pass
-
-def play_voice(filename_or_text, is_dynamic=False):
-    set_master_volume()
-    duck_audio(True)
-
-    if is_dynamic:
-        tts = gTTS(text=filename_or_text, lang='en', tld='co.uk', slow=False)
-        tts.save("/tmp/nanami_temp.mp3")
-        os.system("mpg123 -q /tmp/nanami_temp.mp3")
+    check_and_switch_audio()
+    time.sleep(1)
+    play_voice("wake_up") 
+    time.sleep(1)
+    
+    print("👉 Phase 1: Init")
+    play_voice("boot")
+    time.sleep(3)
+    
+    print("👉 Phase 2: Ready")
+    play_voice("ready")
+    time.sleep(2)
+    
+    print("👉 Phase 3: Greeting")
+    play_voice(get_time_greeting())
+    time.sleep(3)
+    
+    print("👉 Phase 4: Scanning")
+    play_voice("scanning")
+    
+    print("⏳ Waiting for sensor data stream (Max 25s)...")
+    max_wait = 25 # Diperlama buat kompensasi sinyal
+    start_wait = time.time()
+    
+    got_data = False
+    while time.time() - start_wait < max_wait:
+        if state["current_temp"] != -999:
+            got_data = True
+            break
+        time.sleep(0.5)
+    
+    print("👉 Phase 5: Reporting")
+    if got_data:
+        t = state["current_temp"]
+        a = analyze_air(state["current_gas"])
+        if t == -999:
+             play_voice("sensor_fail")
+        else:
+             play_voice("sensor_report", f"Sensors connected. Temp {t}. Air {a}.")
     else:
-        path = f"{SOUND_DIR}/{filename_or_text}.mp3"
-        if os.path.exists(path): os.system(f"mpg123 -q {path}")
+        play_voice("sensor_fail", "Sensor connection timeout.")
 
-    duck_audio(False)
+    print("✅ BOOT COMPLETE. ENABLING GUARDIAN MODE.")
+    
+    # 1. Buka Kunci
+    state["boot_complete"] = True
+    client.publish("smartdesk/status", "RPI_READY", retain=True)
+    
+    # 2. 🔥 INITIAL CHECK / HANDOVER LOGIC 🔥
+    # Langsung nyalain fan kalau user terdeteksi pas scanning tadi
+    last_dist = state["current_dist"]
+    if last_dist > 0 and last_dist < 80:
+        print("👤 POST-BOOT CHECK: User detected! Activating FAN immediately.")
+        state["user_present"] = True
+        
+        # Eksekusi FAN
+        client.publish("smartdesk/control/fan", "ON")
+        state["fan_is_on"] = True
+        
+        play_voice("welcome_back")
 
-# ================= 📱 BLUETOOTH MONITOR =================
-def monitor_bluetooth():
-    global BLUETOOTH_CONNECTED
-    while True:
-        try:
-            cmd = "pactl list sources short | grep bluez_source"
-            is_connected = "bluez_source" in subprocess.getoutput(cmd)
+# --- MQTT EVENTS ---
+def on_connect(client, userdata, flags, rc):
+    if rc == 0:
+        print(f"✅ MQTT Connected")
+        client.subscribe(MQTT_TOPIC)
+        state["mqtt_connected"] = True 
 
-            if is_connected != BLUETOOTH_CONNECTED:
-                if is_connected:
-                    time.sleep(1)
-                    play_voice("bt_connect")
-                else:
-                    play_voice("bt_disconnect")
-                                BLUETOOTH_CONNECTED = is_connected
-        except: pass
-        time.sleep(2)
-
-# ================= 🧠 LOGIC ENGINE =================
-def calculate_confidence(dist, mq, temp):
-    score = 0
-    if dist < 80: score += 60
-    if mq > 1200: score += 30
-    if temp > 29: score += 10
-    return min(score, 100)
-
-def check_health(duration):
-    global LAST_HEALTH_CHECK
-    if duration > 3600 and (time.time() - LAST_HEALTH_CHECK > 3600):
-        play_voice("hydrate")
-        LAST_HEALTH_CHECK = time.time()
-
-def check_air_quality(mq_val):
-    global AIR_WARNING_LEVEL, LAST_AIR_WARN
-    if mq_val < MQ_THRESHOLD_BAD:
-        AIR_WARNING_LEVEL = 0
-        return
-    now = time.time()
-    if now - LAST_AIR_WARN < 300: return
-
-    if AIR_WARNING_LEVEL == 0:
-        play_voice("air_alert")
-        AIR_WARNING_LEVEL = 1
-    elif AIR_WARNING_LEVEL == 1:
-        play_voice("Air quality is critical. Please ventilate.", True)
-        AIR_WARNING_LEVEL = 2
-    LAST_AIR_WARN = now
-
-# ================= 📡 MQTT CALLBACKS =================
 def on_message(client, userdata, msg):
-    global USER_PRESENT, LAST_SEEN, SEATED_START
-    if not SYSTEM_READY: return
-
+    global state
     try:
-        data = json.loads(msg.payload.decode())
-                dist = data.get('d', 999)
-        mq   = data.get('mq', 0)
-        temp = data.get('t', 0)
+        topic = msg.topic
+        payload = msg.payload.decode()
+        
+        if "sensor" in topic and "{" in payload:
+            data = json.loads(payload)
+            state["current_temp"] = data.get("temp", -999)
+            state["current_dist"] = data.get("dist", -999)
+            state["current_gas"]  = data.get("gas", 0)
 
-        confidence = calculate_confidence(dist, mq, temp)
-        now = time.time()
+            if not state["boot_complete"]: return 
 
-        # === USER DATANG (Presence Detect) ===
-        if confidence >= CONFIDENCE_LIMIT and not USER_PRESENT:
-            USER_PRESENT = True
-            SEATED_START = now
-            LAST_SEEN = now
+            # --- VARIABLES ---
+            dist = state["current_dist"]
+            temp = state["current_temp"]
 
-            # 1. AUTO NYALAIN KIPAS (Lampu Tetap Manual)
-            client.publish(TOPIC_CTRL_FAN, "ON")
+            # 1. RUNTIME WATCHDOG
+            if (temp == -999 or dist == -999):
+                if time.time() - state["last_error_time"] > 300:
+                    print("⚠️ SENSOR FAILURE!")
+                    play_voice("runtime_error")
+                    state["last_error_time"] = time.time()
 
-            # 2. Sapaan Nanami
-            h = datetime.now().hour
-            if 5 <= h < 12: play_voice("greet_morning")
-            elif 12 <= h < 18: play_voice("greet_day")
-            else: play_voice("greet_evening")
+            # 2. PRESENCE LOGIC (THE BRAIN)
+            if dist != -999:
+                # --- USER DATANG ---
+                if dist > 0 and dist < 80:
+                    state["away_timer_start"] = 0
+                    
+                    if not state["user_present"]:
+                        print(f"👤 USER ARRIVED")
+                        state["user_present"] = True
+                        
+                        # A. Sapaan Instan
+                        play_voice("welcome_back")
+                        
+                        # B. Briefing Lengkap
+                        now_jam = datetime.now().strftime("%H:%M")
+                        briefing_text = f"Current time is {now_jam}. Room temperature is {temp} degrees. Air quality is {analyze_air(state['current_gas'])}."
+                        print(f"🔊 Briefing: {briefing_text}")
+                        play_voice("dynamic_briefing", briefing_text)
 
-            time.sleep(0.5)
-            play_voice(f"Current room temperature is {int(temp)} degrees.", True)
+                        # C. Nyalain FAN LAPTOP (Otomatis)
+                        if not state["fan_is_on"]:
+                            client.publish("smartdesk/control/fan", "ON")
+                            state["fan_is_on"] = True
 
-        # === USER DUDUK (Monitoring) ===
-        elif confidence >= CONFIDENCE_LIMIT and USER_PRESENT:
-            LAST_SEEN = now
-            check_health(now - SEATED_START)
-            check_air_quality(mq)
+                # --- USER PERGI ---
+                elif dist >= 80 or dist == 0:
+                    if state["user_present"]:
+                        if state["away_timer_start"] == 0:
+                            state["away_timer_start"] = time.time()
+                        elif time.time() - state["away_timer_start"] > 5:
+                            print("💨 USER LEFT")
+                            state["user_present"] = False
+                            state["away_timer_start"] = 0
+                            
+                            play_voice("bye")
+                            
+                            # Matiin FAN LAPTOP (Otomatis)
+                            if state["fan_is_on"]:
+                                client.publish("smartdesk/control/fan", "OFF")
+                                state["fan_is_on"] = False
 
-        # === USER PERGI (Auto OFF) ===
-        elif confidence < 40 and USER_PRESENT:
-            if (now - LAST_SEEN) > 10: # Tunggu 10 Detik
-                USER_PRESENT = False
-                play_voice("bye")
-
-                # MATIKAN KIPAS
-                client.publish(TOPIC_CTRL_FAN, "OFF")
+            # 3. SAFETY
+            if temp > 34 and temp != -999:
+                if time.time() - state["last_temp_alert"] > 60:
+                    play_voice("temp_alert", f"High temperature {temp} degrees.")
+                    state["last_temp_alert"] = time.time()
 
     except Exception as e:
-        print(f"Error: {e}")
-
-def on_connect(client, userdata, flags, rc):
-    global SYSTEM_READY
-    client.subscribe(TOPIC_DATA)
-    set_master_volume()
-    play_voice("boot")
-    client.publish(TOPIC_STATE, "RPI_READY")
-    SYSTEM_READY = True
+        pass 
 
 if __name__ == "__main__":
-    os.environ["PULSE_RUNTIME_PATH"] = "/run/user/1000/pulse"
-
-    # Start Bluetooth Thread
-    threading.Thread(target=monitor_bluetooth, daemon=True).start()
-
-    # Start MQTT
+    print(f"\n🚀 Nanami 'Director Cut' v3.5 Starting... {datetime.now()}")
+    
     client = mqtt.Client()
     client.on_connect = on_connect
     client.on_message = on_message
-
+    
+    client.connect(MQTT_BROKER, MQTT_PORT, 60)
+    client.loop_start() 
+    
+    while not state["mqtt_connected"]:
+        time.sleep(0.1)
+    
+    run_cinematic_boot(client)
+    
     try:
-        client.connect(BROKER, 1883, 60)
-        client.loop_forever()
-    except KeyboardInterrupt: pass
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        client.loop_stop()
+        print("🛑 System Offline.")
